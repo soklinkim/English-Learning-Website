@@ -30,6 +30,15 @@ const userSchema = new mongoose.Schema(
         phone: {
             type: String,
             required: true
+        },
+
+        failedLoginAttempts: {
+            type: Number,
+            default: 0
+        },
+
+        lockUntil: {
+            type: Date
         }
     },
     {

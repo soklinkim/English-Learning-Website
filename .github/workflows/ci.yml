@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies and check syntax
+        run: |
+          for service in api-gateway registration-service login-service content-service learning-service; do
+            (cd "$service" && npm ci && find . -name '*.js' -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check)
+          done
+
+      - name: Validate compose file and build images
+        env:
+          JWT_SECRET: ci-secret
+          MONGO_URI_USERS: mongodb://localhost/users
+          MONGO_URI_CONTENT: mongodb://localhost/content
+          MONGO_URI_LEARNING: mongodb://localhost/learning
+        run: |
+          docker compose config -q
+          docker compose build

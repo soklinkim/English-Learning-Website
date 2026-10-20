@@ -22,6 +22,22 @@ All five services are implemented: API Gateway (3000), Registration (3001), Logi
 
 Registration always creates accounts with the role `user` (a student). The role is never read from the request body, so admins are created with a seed script (step 1).
 
+### Phase 2 status
+
+| ID | Status |
+| --- | --- |
+| HRD-1 | Nginx container in front of the gateway on port 80 (`nginx/nginx.conf`); the gateway port is no longer published. HTTPS needs a domain and Certbot; a template is commented in the config. |
+| HRD-2 | Public registration creates students only. Admins come from `seedAdmin.js` or `POST /register/adminregister` (admin token required). |
+| HRD-3 | Rate limits on `POST /auth/login` (20 per 15 min) and `POST /register/userregister` (10 per hour) per IP, counted per gateway copy. |
+| HRD-4 | Minimum password length is 8; an account locks for 15 minutes after 5 failed logins (429). |
+| HRD-5, HRD-6 | Not done: refresh tokens, email verification and password reset. |
+| HRD-7, HRD-8, HRD-9 | Not done in code: media storage in S3, Atlas backups (set in the Atlas console) and uptime alerts. The gateway logs one JSON line per request. |
+| HRD-10 | Helmet security headers, CORS limited to `CORS_ORIGIN`, extra index on enrollments by course. |
+| HRD-11 | `.github/workflows/ci.yml` checks syntax and builds the images. Unit and API tests are not written yet. |
+| HRD-12 | Docker Compose starts 2 gateway copies; Nginx balances them with round robin (least connections is a one-line change for production traffic). |
+
+With Docker, call the API on port 80 (`http://localhost/...`). With `node server.js` locally, the gateway is still on port 3000. To test load balancing, run `docker compose up -d --scale api-gateway=3`, then `docker compose restart nginx`, and watch `docker compose logs -f api-gateway`. Stop one gateway container with `docker stop` and confirm requests still succeed.
+
 ### Testing step 1: create an admin account
 
 Admins cannot register through the API. From the `registration-service` folder, run the seed script in PowerShell:

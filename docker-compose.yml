@@ -1,54 +1,42 @@
 name: english-online-learning-platform
 
-services:
-  mongo:
-    image: mongo:7
-    restart: unless-stopped
-    volumes:
-      - mongo-data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+# Secrets (JWT secret and Atlas connection strings) come from the root .env file.
+# See .env.example for the variable names.
 
+services:
   registration-service:
     build: ./registration-service
     restart: unless-stopped
     environment:
       PORT: 3001
-      MONGO_URI: mongodb://mongo:27017/registration_db
+      MONGO_URI: ${MONGO_URI_USERS:?Set MONGO_URI_USERS in the root .env file}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
-    depends_on:
-      mongo:
-        condition: service_healthy
 
   login-service:
     build: ./login-service
     restart: unless-stopped
     environment:
       PORT: 3002
-      MONGO_URI: mongodb://mongo:27017/registration_db
+      # Same database as registration: login reads the users collection it writes
+      MONGO_URI: ${MONGO_URI_USERS:?Set MONGO_URI_USERS in the root .env file}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
-    depends_on:
-      mongo:
-        condition: service_healthy
 
   content-service:
     build: ./content-service
     restart: unless-stopped
     environment:
       PORT: 3003
-      MONGO_URI: mongodb://mongo:27017/content_db
+      MONGO_URI: ${MONGO_URI_CONTENT:?Set MONGO_URI_CONTENT in the root .env file}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
       LEARNING_SERVICE_URL: http://learning-service:3004
     healthcheck:
@@ -56,16 +44,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    depends_on:
-      mongo:
-        condition: service_healthy
 
   learning-service:
     build: ./learning-service
     restart: unless-stopped
     environment:
       PORT: 3004
-      MONGO_URI: mongodb://mongo:27017/learning_db
+      MONGO_URI: ${MONGO_URI_LEARNING:?Set MONGO_URI_LEARNING in the root .env file}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
       CONTENT_SERVICE_URL: http://content-service:3003
     healthcheck:
@@ -73,17 +58,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    depends_on:
-      mongo:
-        condition: service_healthy
 
   api-gateway:
     build: ./api-gateway
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    # Not published to the host: Nginx is the public entry point and balances these copies.
+    # Scale with: docker compose up -d --scale api-gateway=3 && docker compose restart nginx
+    expose:
+      - "3000"
+    deploy:
+      replicas: 2
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     environment:
       PORT: 3000
+      TRUST_PROXY: 1
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       REGISTRATION_SERVICE_URL: http://registration-service:3001
@@ -100,5 +92,13 @@ services:
       learning-service:
         condition: service_healthy
 
-volumes:
-  mongo-data:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api-gateway:
+        condition: service_healthy

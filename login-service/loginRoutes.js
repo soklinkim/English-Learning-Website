@@ -6,7 +6,10 @@ const User = require("./models/User");
 
 const router = express.Router();
 
-const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 10);
+const MAX_FAILED_LOGINS = Number(process.env.MAX_FAILED_LOGINS || 5);
+const LOCK_MINUTES = Number(process.env.LOCK_MINUTES || 15);
+
+const DUMMY_HASH =bcrypt.hashSync("not-a-real-password", 10);
 
 router.post("/login", async (req, res) => {
     try {
@@ -26,6 +29,13 @@ router.post("/login", async (req, res) => {
             email: email.trim().toLowerCase()
         });
 
+        // Temporary lock after repeated failures (HRD-4)
+        if (user && user.lockUntil && user.lockUntil > new Date()) {
+            return res.status(429).json({
+                message: "Too many failed attempts. Try again later."
+            });
+        }
+
         // Compare against a dummy hash for unknown emails so timing doesn't reveal them
         const passwordMatch = await bcrypt.compare(
             password,
@@ -35,9 +45,36 @@ router.post("/login", async (req, res) => {
         // Same 401 for unknown email, wrong password or mismatched role (LOG-3).
         // The role is optional and, if sent, must match the stored one.
         if (!user || !passwordMatch || (role && user.role !== role)) {
+            if (user) {
+                const updated = await User.findByIdAndUpdate(
+                    user._id,
+                    { $inc: { failedLoginAttempts: 1 } },
+                    { new: true }
+                );
+
+                if (updated.failedLoginAttempts >= MAX_FAILED_LOGINS) {
+                    await User.updateOne(
+                        { _id: user._id },
+                        {
+                            $set: {
+                                failedLoginAttempts: 0,
+                                lockUntil: new Date(Date.now() + LOCK_MINUTES * 60 * 1000)
+                            }
+                        }
+                    );
+                }
+            }
+
             return res.status(401).json({
                 message: "Invalid email or password"
             });
+        }
+
+        if (user.failedLoginAttempts || user.lockUntil) {
+            await User.updateOne(
+                { _id: user._id },
+                { $set: { failedLoginAttempts: 0 }, $unset: { lockUntil: "" } }
+            );
         }
 
         // Generate JWT

@@ -1,0 +1,38 @@
+# Load balancer for the three-instance setup: this Nginx runs on its own EC2 instance and
+# balances requests between the API gateways running on the backend instances.
+
+upstream api_backends {
+    # Round robin (default): each request goes to the next backend, so refreshing the page
+    # visibly alternates. Add "least_conn;" here for busy production traffic.
+    server ${BACKEND_1} max_fails=2 fail_timeout=10s;
+    server ${BACKEND_2} max_fails=2 fail_timeout=10s;
+}
+
+server {
+    listen 80;
+    server_name _;
+
+    client_max_body_size 1m;
+    gzip on;
+    gzip_types application/json text/plain text/css application/javascript;
+
+    # Answered by Nginx itself, so you can check the balancer without touching a backend
+    location = /lb-health {
+        default_type text/plain;
+        return 200 "load balancer ok\n";
+    }
+
+    location / {
+        proxy_pass http://api_backends;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # If one backend fails or is down, retry the request on the other one
+        proxy_next_upstream error timeout http_502 http_503;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+    }
+}

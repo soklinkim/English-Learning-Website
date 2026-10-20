@@ -1,0 +1,94 @@
+name: english-platform-backend
+
+# Full backend stack for one EC2 backend instance (no Nginx).
+# Run the same file on every backend instance; the load balancer instance
+# (docker-compose.lb.yml) sends traffic to port 3000 of each one.
+#   docker compose -f docker-compose.backend.yml up -d --build
+# Secrets come from the root .env file (see .env.example); use the SAME values
+# on every backend, otherwise a token issued by one server is rejected by another.
+
+services:
+  registration-service:
+    build: ./registration-service
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      MONGO_URI: ${MONGO_URI_USERS:?Set MONGO_URI_USERS in the root .env file}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  login-service:
+    build: ./login-service
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      MONGO_URI: ${MONGO_URI_USERS:?Set MONGO_URI_USERS in the root .env file}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  content-service:
+    build: ./content-service
+    restart: unless-stopped
+    environment:
+      PORT: 3003
+      MONGO_URI: ${MONGO_URI_CONTENT:?Set MONGO_URI_CONTENT in the root .env file}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      LEARNING_SERVICE_URL: http://learning-service:3004
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  learning-service:
+    build: ./learning-service
+    restart: unless-stopped
+    environment:
+      PORT: 3004
+      MONGO_URI: ${MONGO_URI_LEARNING:?Set MONGO_URI_LEARNING in the root .env file}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      CONTENT_SERVICE_URL: http://content-service:3003
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3004/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api-gateway:
+    build: ./api-gateway
+    restart: unless-stopped
+    # Published so the load balancer instance can reach it. Restrict port 3000 in the
+    # AWS security group to the load balancer's security group only.
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      PORT: 3000
+      TRUST_PROXY: 1
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      REGISTRATION_SERVICE_URL: http://registration-service:3001
+      LOGIN_SERVICE_URL: http://login-service:3002
+      CONTENT_SERVICE_URL: http://content-service:3003
+      LEARNING_SERVICE_URL: http://learning-service:3004
+    depends_on:
+      registration-service:
+        condition: service_healthy
+      login-service:
+        condition: service_healthy
+      content-service:
+        condition: service_healthy
+      learning-service:
+        condition: service_healthy

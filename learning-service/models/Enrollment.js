@@ -9,4 +9,6 @@ const enrollmentSchema = new mongoose.Schema({
 // NFR-8: one enrollment per student and course
 enrollmentSchema.index({ studentId: 1, courseId: 1 }, { unique: true });
 
+enrollmentSchema.index({ courseId: 1 });
+
 module.exports = mongoose.model("Enrollment", enrollmentSchema);

@@ -1,0 +1,19 @@
+name: english-platform-lb
+
+# Load balancer instance: Nginx only. It sends traffic to the gateways on the backend instances.
+#   docker compose -f docker-compose.lb.yml up -d
+# BACKEND_1 and BACKEND_2 (private IP and port, for example 172.31.34.50:3000) come from .env.
+# After changing them, run: docker compose -f docker-compose.lb.yml up -d --force-recreate
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      BACKEND_1: ${BACKEND_1:?Set BACKEND_1 in the .env file (private IP:3000 of backend 1)}
+      BACKEND_2: ${BACKEND_2:?Set BACKEND_2 in the .env file (private IP:3000 of backend 2)}
+    volumes:
+      # The Nginx image fills in ${BACKEND_1} and ${BACKEND_2} when it starts
+      - ./lb/default.conf.template:/etc/nginx/templates/default.conf.template:ro

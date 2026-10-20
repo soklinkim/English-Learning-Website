@@ -12,8 +12,8 @@ async function seed() {
     const email = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
     const password = process.env.ADMIN_PASSWORD || "";
 
-    if (!email || password.length < 6) {
-        throw new Error("Set ADMIN_EMAIL and ADMIN_PASSWORD (at least 6 characters)");
+    if (!email || password.length < 8) {
+        throw new Error("Set ADMIN_EMAIL and ADMIN_PASSWORD (at least 8 characters)");
     }
 
     await connectDB();
