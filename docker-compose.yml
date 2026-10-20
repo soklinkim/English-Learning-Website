@@ -1,0 +1,104 @@
+name: english-online-learning-platform
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  registration-service:
+    build: ./registration-service
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      MONGO_URI: mongodb://mongo:27017/registration_db
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  login-service:
+    build: ./login-service
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      MONGO_URI: mongodb://mongo:27017/registration_db
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  content-service:
+    build: ./content-service
+    restart: unless-stopped
+    environment:
+      PORT: 3003
+      MONGO_URI: mongodb://mongo:27017/content_db
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      LEARNING_SERVICE_URL: http://learning-service:3004
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  learning-service:
+    build: ./learning-service
+    restart: unless-stopped
+    environment:
+      PORT: 3004
+      MONGO_URI: mongodb://mongo:27017/learning_db
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      CONTENT_SERVICE_URL: http://content-service:3003
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3004/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  api-gateway:
+    build: ./api-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      REGISTRATION_SERVICE_URL: http://registration-service:3001
+      LOGIN_SERVICE_URL: http://login-service:3002
+      CONTENT_SERVICE_URL: http://content-service:3003
+      LEARNING_SERVICE_URL: http://learning-service:3004
+    depends_on:
+      registration-service:
+        condition: service_healthy
+      login-service:
+        condition: service_healthy
+      content-service:
+        condition: service_healthy
+      learning-service:
+        condition: service_healthy
+
+volumes:
+  mongo-data:
